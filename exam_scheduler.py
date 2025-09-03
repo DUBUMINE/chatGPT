@@ -62,8 +62,11 @@ class ExamScheduler(tk.Tk):
         self.class_spin = tk.Spinbox(frm, from_=1, to=20, width=5)
         self.grade_spin.grid(row=0, column=1)
         self.class_spin.grid(row=0, column=3)
+        tk.Label(frm, text="하루 교시 수").grid(row=0, column=4)
+        self.max_period_spin = tk.Spinbox(frm, from_=1, to=10, width=5)
+        self.max_period_spin.grid(row=0, column=5)
 
-        self.start_cal = Calendar(
+        self.cal = Calendar(
             frm,
             selectmode="day",
             year=2025,
@@ -73,34 +76,41 @@ class ExamScheduler(tk.Tk):
             maxdate=date(2030, 12, 31),
             firstweekday="sunday",
         )
-        self.start_cal.grid(row=1, column=0, columnspan=2, padx=5, pady=5)
-        self.end_cal = Calendar(
-            frm,
-            selectmode="day",
-            year=2025,
-            month=1,
-            day=1,
-            mindate=date(2025, 1, 1),
-            maxdate=date(2030, 12, 31),
-            firstweekday="sunday",
-        )
-        self.end_cal.grid(row=1, column=2, columnspan=2, padx=5, pady=5)
+        self.cal.grid(row=1, column=0, columnspan=6, padx=5, pady=5)
+
+        self.start_var = tk.StringVar(value="")
+        self.end_var = tk.StringVar(value="")
+        tk.Button(frm, text="시작 지정", command=self.pick_start).grid(row=2, column=0, columnspan=3, pady=5)
+        tk.Button(frm, text="종료 지정", command=self.pick_end).grid(row=2, column=3, columnspan=3, pady=5)
+        tk.Label(frm, textvariable=self.start_var).grid(row=3, column=0, columnspan=3)
+        tk.Label(frm, textvariable=self.end_var).grid(row=3, column=3, columnspan=3)
 
         tk.Button(frm, text="기간 설정", command=self.set_period).grid(
-            row=2, column=0, columnspan=4, pady=5
+            row=4, column=0, columnspan=6, pady=5
         )
 
         self.dates_container = tk.Frame(frm)
-        self.dates_container.grid(row=3, column=0, columnspan=4, pady=10)
+        self.dates_container.grid(row=5, column=0, columnspan=6, pady=10)
+
+    def pick_start(self):
+        self.start_var.set(self.cal.selection_get().isoformat())
+
+    def pick_end(self):
+        self.end_var.set(self.cal.selection_get().isoformat())
 
     def set_period(self):
-        start_date = self.start_cal.selection_get()
-        end_date = self.end_cal.selection_get()
+        try:
+            start_date = datetime.strptime(self.start_var.get(), "%Y-%m-%d").date()
+            end_date = datetime.strptime(self.end_var.get(), "%Y-%m-%d").date()
+        except ValueError:
+            messagebox.showerror("오류", "시작과 종료 날짜를 지정하세요")
+            return
         if end_date < start_date:
             messagebox.showerror("오류", "종료일이 시작일보다 빠릅니다")
             return
         self.grade_count = int(self.grade_spin.get())
         self.class_count = int(self.class_spin.get())
+        self.max_periods = int(self.max_period_spin.get())
 
         for child in self.dates_container.winfo_children():
             child.destroy()
@@ -114,7 +124,7 @@ class ExamScheduler(tk.Tk):
                 continue  # skip weekends
             date_str = d.isoformat()
             tk.Label(self.dates_container, text=date_str).grid(row=row, column=0)
-            spin = tk.Spinbox(self.dates_container, from_=1, to=4, width=5)
+            spin = tk.Spinbox(self.dates_container, from_=1, to=self.max_periods, width=5)
             spin.grid(row=row, column=1)
             self.exam_dates[date_str] = spin
             row += 1
@@ -215,7 +225,8 @@ class ExamScheduler(tk.Tk):
         tk.Label(win, text="날짜 YYYY-MM-DD").grid(row=0, column=0)
         tk.Label(win, text="교시").grid(row=1, column=0)
         date_entry = tk.Entry(win)
-        period_spin = tk.Spinbox(win, from_=1, to=4, width=5)
+        max_p = getattr(self, "max_periods", 4)
+        period_spin = tk.Spinbox(win, from_=1, to=max_p, width=5)
         date_entry.grid(row=0, column=1)
         period_spin.grid(row=1, column=1)
 
@@ -364,26 +375,27 @@ class ExamScheduler(tk.Tk):
             return
         wb = Workbook()
         ws = wb.active
-        ws.title = "Schedule"
-        ws.append(["날짜", "교시", "과목", "정감독", "부감독", "자율학습"])
+        ws.title = "감독표"
+        ws.append(["날짜", "교시", "과목", "정감독", "부감독", "자율학습", "비고"])
         for row in self.generated_schedule:
-            ws.append(list(row))
+            ws.append(list(row) + [""])
 
-        ws2 = wb.create_sheet("Summary")
-        ws2.append(["교사", "정감독", "부감독", "자율학습"])
+        ws.cell(row=1, column=8, value="교사")
+        ws.cell(row=1, column=9, value="정감독")
+        ws.cell(row=1, column=10, value="부감독")
+        ws.cell(row=1, column=11, value="자율학습")
+        r = 2
         for t in self.teachers.values():
-            ws2.append(
-                [
-                    t.name,
-                    t.assignments["main"],
-                    t.assignments["assistant"],
-                    t.assignments["selfstudy"],
-                ]
-            )
+            ws.cell(row=r, column=8, value=t.name)
+            ws.cell(row=r, column=9, value=t.assignments["main"])
+            ws.cell(row=r, column=10, value=t.assignments["assistant"])
+            ws.cell(row=r, column=11, value=t.assignments["selfstudy"])
+            r += 1
+        ws.cell(row=r + 1, column=8, value="학년 수")
+        ws.cell(row=r + 1, column=9, value=self.grade_count)
+        ws.cell(row=r + 2, column=8, value="학급 수")
+        ws.cell(row=r + 2, column=9, value=self.class_count)
 
-        ws3 = wb.create_sheet("Info")
-        ws3.append(["학년 수", self.grade_count])
-        ws3.append(["학급 수", self.class_count])
         wb.save(path)
 
 if __name__ == "__main__":
